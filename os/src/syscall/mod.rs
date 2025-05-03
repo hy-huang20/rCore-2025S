@@ -27,6 +27,15 @@ mod process;
 use fs::*;
 use process::*;
 
+fn update_syscall_cnt(_syscall_id: usize) {
+    let mut tm_mut_ref = TASK_MANAGER.inner.exclusive_access();
+    let self_cnt = tm_mut_ref.syscall_cnt.get_mut(_syscall_id);
+    match self_cnt {
+        Some(s) => s += 1,
+        None => tm_mut_ref.syscall_cnt.insert(_syscall_id, 1),
+    }
+}
+
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
     match syscall_id {
@@ -37,4 +46,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_TRACE => sys_trace(args[0], args[1], args[2]),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
+    // 在这里调用可以保证 syscall_id 的合法性
+    // 但由于用 sys_trace 查看自身调用次数时应包含自己本次的调用
+    // 所以仅 sys_trace 调用次数为记录的结果加 1
+    update_syscall_cnt(syscall_id);
+
 }
