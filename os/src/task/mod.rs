@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use std::collections::HashMap;
+use crate::syscall::SYSCALL_ID_UPPER_BOUND;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
@@ -55,6 +55,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_cnt: [0; SYSCALL_ID_UPPER_BOUND],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -66,7 +67,6 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
-                    syscall_cnt: HashMap::new(),
                 })
             },
         }
@@ -170,4 +170,19 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+///
+pub fn get_current_task_id() -> usize {
+    return TASK_MANAGER.inner.exclusive_access().current_task;
+}
+
+///
+pub fn get_syscall_cnt(_task_id: usize, _syscall_id: usize) -> usize {
+    return TASK_MANAGER.inner.exclusive_access().tasks[_task_id].syscall_cnt[_syscall_id];
+}
+
+///
+pub fn increase_syscall_cnt(_task_id: usize, _syscall_id: usize) {
+    TASK_MANAGER.inner.exclusive_access().tasks[_task_id].syscall_cnt[_syscall_id] += 1;
 }

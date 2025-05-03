@@ -2,7 +2,7 @@
 
 use core::ptr;
 use crate::{
-    task::{exit_current_and_run_next, suspend_current_and_run_next, TASK_MANAGER},
+    task::{exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_syscall_cnt, increase_syscall_cnt},
     timer::get_time_us,
 };
 
@@ -13,10 +13,14 @@ pub struct TimeVal {
     pub usec: usize,
 }
 
+/// 更新当前 task 相应 syscall 调用次数
+pub fn update_syscall_cnt(_syscall_id: usize) {
+    increase_syscall_cnt(get_current_task_id(), _syscall_id);
+}
+
 /// task exits and submit an exit code
 pub fn sys_exit(exit_code: i32) -> ! {
     trace!("[kernel] Application exited with code {}", exit_code);
-
     exit_current_and_run_next();
     panic!("Unreachable in sys_exit!");
 }
@@ -58,17 +62,10 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
         },
         2 => {
             let syscall_id = _id;
-            let cnt = tm_mut_ref.syscall_cnt.get(syscall_id).copied();
-            let mut ret: isize = 0;
-            if let Some(s) = cnt {
-                ret = s;
-            }
-            if (syscall_id == SYSCALL_TRACE) {
-                ret += 1;
-            }
+            let current_task_id = get_current_task_id();
+            let ret = get_syscall_cnt(current_task_id, syscall_id) as isize;
             return ret;
         },
         _ => return -1,
     }
-    return -1;
 }
