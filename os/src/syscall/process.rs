@@ -1,8 +1,8 @@
 //! Process management syscalls
 use crate::{
-    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, current_user_token},
+    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_syscall_cnt, increase_syscall_cnt, current_user_token},
     timer::get_time_us,
-    mm::translated_byte_buffer,
+    mm::{PageTable, VirtAddr, translated_byte_buffer},
 };
 
 #[repr(C)]
@@ -10,6 +10,11 @@ use crate::{
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
+}
+
+/// 更新当前 task 相应 syscall 调用次数
+pub fn update_syscall_cnt(_syscall_id: usize) {
+    increase_syscall_cnt(get_current_task_id(), _syscall_id);
 }
 
 /// task exits and submit an exit code
@@ -56,7 +61,48 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    match _trace_request {
+        0 => {
+            let vaddr = VirtAddr::from(_id as *const u8 as usize);
+            let vpn = vaddr.floor();
+            match page_table.translate(vpn) {
+                Some(pte) => {
+                    if !pte.is_valid() || !pte.usermode() || !pte.readable() { // 不可读
+                        -1
+                    } else {
+                        let ppn = pte.ppn();
+                        ppn.get_bytes_array()[vaddr.page_offset()] as isize
+                    }
+                },
+                None => -1, // 不可见
+            }
+        },
+        1 => {
+            let vaddr = VirtAddr::from(_id as *mut u8 as usize);
+            let vpn = vaddr.floor();
+            match page_table.translate(vpn) {
+                Some(pte) => {
+                    if !pte.is_valid() || !pte.usermode() || !pte.writable() { // 不可写
+                        -1
+                    } else {
+                        let ppn = pte.ppn();
+                        ppn.get_bytes_array()[vaddr.page_offset()] = _data as u8; // 只需要低位 1 个字节
+                        0
+                    }
+                },
+                None => -1, // 不可见
+            }
+        },
+        2 => {
+            let syscall_id = _id;
+            let current_task_id = get_current_task_id();
+            let ret = get_syscall_cnt(current_task_id, syscall_id) as isize;
+            ret
+        },
+        _ => -1,
+    }
 }
 
 // YOUR JOB: Implement mmap.

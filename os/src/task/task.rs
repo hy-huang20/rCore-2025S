@@ -5,6 +5,7 @@ use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
 use crate::trap::{trap_handler, TrapContext};
+use crate::syscall::SYSCALL_ID_UPPER_BOUND;
 
 /// The task control block (TCB) of a task.
 pub struct TaskControlBlock {
@@ -28,6 +29,10 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// task 调用 id 对应的 syscall 的次数
+    pub syscall_cnt: [usize; SYSCALL_ID_UPPER_BOUND],
+
 }
 
 impl TaskControlBlock {
@@ -63,6 +68,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_cnt: [0; SYSCALL_ID_UPPER_BOUND],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

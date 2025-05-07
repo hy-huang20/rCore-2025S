@@ -202,3 +202,18 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
+
+///
+pub fn get_current_task_id() -> usize {
+    return TASK_MANAGER.inner.exclusive_access().current_task;
+}
+
+///
+pub fn get_syscall_cnt(_task_id: usize, _syscall_id: usize) -> usize {
+    return TASK_MANAGER.inner.exclusive_access().tasks[_task_id].syscall_cnt[_syscall_id];
+}
+
+///
+pub fn increase_syscall_cnt(_task_id: usize, _syscall_id: usize) {
+    TASK_MANAGER.inner.exclusive_access().tasks[_task_id].syscall_cnt[_syscall_id] += 1;
+}
