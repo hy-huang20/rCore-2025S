@@ -1,8 +1,9 @@
 //! Process management syscalls
 use crate::{
-    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_syscall_cnt, increase_syscall_cnt, current_user_token},
+    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_syscall_cnt, increase_syscall_cnt, current_user_token, MapStatus, map_page_for_current_task, unmap_page_for_current_task},
     timer::get_time_us,
-    mm::{PageTable, VirtAddr, translated_byte_buffer},
+    mm::{PageTable, VirtAddr, translated_byte_buffer, PTEFlags},
+    config::PAGE_SIZE,
 };
 
 #[repr(C)]
@@ -106,16 +107,52 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
+    if _start % PAGE_SIZE != 0 { // 如果虚拟地址没有按页对齐直接失败
+        return -1;
+    }
+    if _prot & !0x7 != 0 { // _prot 其余位必须为 0
+        return -1;
+    }
+    if _prot & 0x7 == 0 { // 这样的内存无意义
+        return -1;
+    }
+    let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
+    let flags = PTEFlags::from_bits(((_prot & 0x7) << 1) as u8).unwrap();
+    for i in 0..num_pages {
+        let vpn = VirtAddr::from(_start + i * PAGE_SIZE).floor();
+        match map_page_for_current_task(vpn, flags) {
+            MapStatus::Succ => {
+                continue;
+            },
+            _ => {
+                return -1;
+            }
+        };
+    }
+    return 0;
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    if _start % PAGE_SIZE != 0 { // 如果虚拟地址没有按页对齐直接失败
+        return -1;
+    }
+    let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
+    for i in 0..num_pages {
+        let vpn = VirtAddr::from(_start + i * PAGE_SIZE).floor();
+        match unmap_page_for_current_task(vpn) {
+            MapStatus::Succ => {
+                continue;
+            },
+            _ => {
+                return -1;
+            }
+        }
+    }
+    return 0;
 }
+
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
     trace!("kernel: sys_sbrk");

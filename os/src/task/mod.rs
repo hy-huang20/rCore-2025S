@@ -14,6 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::mm::{PTEFlags, PageTableEntry, frame_alloc, frame_dealloc, VirtPageNum};
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -216,4 +217,49 @@ pub fn get_syscall_cnt(_task_id: usize, _syscall_id: usize) -> usize {
 ///
 pub fn increase_syscall_cnt(_task_id: usize, _syscall_id: usize) {
     TASK_MANAGER.inner.exclusive_access().tasks[_task_id].syscall_cnt[_syscall_id] += 1;
+}
+
+#[derive(Copy, Clone, PartialEq)]
+///
+pub enum MapStatus {
+    /// 映射/去映射成功
+    Succ,
+    /// 页已经被映射
+    PageAlreadyMapped,
+    /// 页未被映射
+    PageUnmapped,
+    /// 物理内存不足无法再分配页
+    OutOfMemory,
+}
+
+///
+pub fn map_page_for_current_task(vpn: VirtPageNum, flags: PTEFlags) -> MapStatus {
+    let task_id = get_current_task_id();
+    let page_table = &mut TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set.page_table;
+    let pte = page_table.find_pte_create(vpn).unwrap();
+    if pte.is_valid() {
+        return MapStatus::PageAlreadyMapped;
+    }
+    if let Some(frame) = frame_alloc() {
+        *pte = PageTableEntry::new(frame.ppn, flags | PTEFlags::V | PTEFlags::U);
+        page_table.add_frame(frame);
+        return MapStatus::Succ;
+    } else {
+        return MapStatus::OutOfMemory;
+    }
+}
+
+///
+pub fn unmap_page_for_current_task(vpn: VirtPageNum) -> MapStatus {
+    let task_id = get_current_task_id();
+    let page_table = &mut TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set.page_table;
+    let pte = page_table.find_pte_create(vpn).unwrap();
+    if !pte.is_valid() {
+        return MapStatus::PageUnmapped;
+    } else {
+        let ppn = pte.ppn();
+        *pte = PageTableEntry::empty();
+        frame_dealloc(ppn);
+        return MapStatus::Succ;
+    }
 }
