@@ -35,8 +35,7 @@ lazy_static! {
 }
 /// address space
 pub struct MemorySet {
-    ///
-    pub page_table: PageTable,
+    page_table: PageTable,
     areas: Vec<MapArea>,
 }
 
@@ -51,6 +50,10 @@ impl MemorySet {
     /// Get the page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
+    }
+    ///
+    pub fn unmap_from_page_table(&mut self, vpn: VirtPageNum) {
+        self.page_table.unmap(vpn);
     }
     /// Assume that no conflicts.
     pub fn insert_framed_area(

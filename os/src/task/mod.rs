@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::mm::{PTEFlags, PageTableEntry, frame_alloc, frame_dealloc, VirtPageNum};
+use crate::mm::{VirtPageNum, VirtAddr, StepByOne, MapPermission};
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -219,47 +219,46 @@ pub fn increase_syscall_cnt(_task_id: usize, _syscall_id: usize) {
     TASK_MANAGER.inner.exclusive_access().tasks[_task_id].syscall_cnt[_syscall_id] += 1;
 }
 
-#[derive(Copy, Clone, PartialEq)]
 ///
-pub enum MapStatus {
-    /// 映射/去映射成功
-    Succ,
-    /// 页已经被映射
-    PageAlreadyMapped,
-    /// 页未被映射
-    PageUnmapped,
-    /// 物理内存不足无法再分配页
-    OutOfMemory,
+pub fn map_for_current_task(start_vpn: VirtPageNum, num_pages: usize, map_perm: MapPermission) -> isize {
+    let task_id = get_current_task_id();
+    let memory_set = &mut TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set;
+    let mut end_vpn = start_vpn;
+    for _ in 0..num_pages {
+        if let Some(pte) = memory_set.translate(end_vpn) {
+            if pte.is_valid() { // vpn 已经被映射到了已经存在的物理页
+                return -1;
+            }
+        }
+        end_vpn.step();
+    }
+    let start_va = VirtAddr::from(start_vpn);
+    let end_va = VirtAddr::from(end_vpn);
+    // 一块新的 MapArea，会自动 map PageTable
+    memory_set.insert_framed_area(start_va, end_va, map_perm);
+    return 0;
 }
 
 ///
-pub fn map_page_for_current_task(vpn: VirtPageNum, flags: PTEFlags) -> MapStatus {
+pub fn unmap_for_current_task(start_vpn: VirtPageNum, num_pages: usize) -> isize {
     let task_id = get_current_task_id();
-    let page_table = &mut TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set.page_table;
-    let pte = page_table.find_pte_create(vpn).unwrap();
-    if pte.is_valid() {
-        return MapStatus::PageAlreadyMapped;
+    let memory_set = &mut TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set;
+    let mut end_vpn = start_vpn;
+    for _ in 0..num_pages {
+        if let Some(pte) = memory_set.translate(end_vpn) {
+            if !pte.is_valid() { // 不能解除不存在的映射
+                return -1;
+            }
+            // PageTable 里面的 frames 存储了页表所有节点对应的物理帧，这些帧用来存 pte
+            // 而 MapArea 里面的 data_frames 存储了页表三级节点中的最后一级（叶节点）指向的物理帧，这些帧用来存数据
+            // 这里并没有释放掉 MapArea，但从 PageTable 中去掉了对 MapArea 中相应 data_frames 的映射
+            //（当然，可能并非该 MapArea 全部 data_frames），因此该 MapArea 中再无法通过 PageTable 映射到的 data_frames
+            // 对后续也没有影响了，没有被取消映射因此仍可以通过 PageTable 映射到的哪些 data_frames 没有受到影响  
+            memory_set.unmap_from_page_table(end_vpn);
+            end_vpn.step();
+        } else { // 不能解除不存在的映射
+            return -1;
+        }
     }
-    if let Some(frame) = frame_alloc() {
-        *pte = PageTableEntry::new(frame.ppn, flags | PTEFlags::V | PTEFlags::U);
-        page_table.add_frame(frame);
-        return MapStatus::Succ;
-    } else {
-        return MapStatus::OutOfMemory;
-    }
-}
-
-///
-pub fn unmap_page_for_current_task(vpn: VirtPageNum) -> MapStatus {
-    let task_id = get_current_task_id();
-    let page_table = &mut TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set.page_table;
-    let pte = page_table.find_pte_create(vpn).unwrap();
-    if !pte.is_valid() {
-        return MapStatus::PageUnmapped;
-    } else {
-        let ppn = pte.ppn();
-        *pte = PageTableEntry::empty();
-        frame_dealloc(ppn);
-        return MapStatus::Succ;
-    }
+    return 0;
 }

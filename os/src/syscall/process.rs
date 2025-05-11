@@ -1,8 +1,8 @@
 //! Process management syscalls
 use crate::{
-    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_syscall_cnt, increase_syscall_cnt, current_user_token, MapStatus, map_page_for_current_task, unmap_page_for_current_task},
+    task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_syscall_cnt, increase_syscall_cnt, current_user_token, map_for_current_task, unmap_for_current_task},
     timer::get_time_us,
-    mm::{PageTable, VirtAddr, translated_byte_buffer, PTEFlags},
+    mm::{PageTable, VirtAddr, translated_byte_buffer, MapPermission},
     config::PAGE_SIZE,
 };
 
@@ -118,19 +118,25 @@ pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
         return -1;
     }
     let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
-    let flags = PTEFlags::from_bits(((_prot & 0x7) << 1) as u8).unwrap();
-    for i in 0..num_pages {
-        let vpn = VirtAddr::from(_start + i * PAGE_SIZE).floor();
-        match map_page_for_current_task(vpn, flags) {
-            MapStatus::Succ => {
-                continue;
-            },
-            _ => {
-                return -1;
-            }
-        };
+    let mut map_perm: MapPermission = MapPermission::U; // MapPermission::V 会在 page_table 的 map 中被加上
+    if _prot & 0x1 != 0 { // read
+        map_perm |= MapPermission::R;
     }
-    return 0;
+    if _prot & 0x2 != 0 { // write
+        map_perm |= MapPermission::W;
+    }
+    if _prot & 0x4 != 0 { // execute
+        map_perm |= MapPermission::X;
+    }
+    let vpn = VirtAddr::from(_start).floor();
+    match map_for_current_task(vpn, num_pages, map_perm) {
+        0 => {
+            return 0;
+        },
+        _ => {
+            return -1;
+        }
+    };
 }
 
 // YOUR JOB: Implement munmap.
@@ -139,18 +145,15 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         return -1;
     }
     let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
-    for i in 0..num_pages {
-        let vpn = VirtAddr::from(_start + i * PAGE_SIZE).floor();
-        match unmap_page_for_current_task(vpn) {
-            MapStatus::Succ => {
-                continue;
-            },
-            _ => {
-                return -1;
-            }
-        }
-    }
-    return 0;
+    let vpn = VirtAddr::from(_start).floor();
+    match unmap_for_current_task(vpn, num_pages) {
+        0 => {
+            return 0;
+        },
+        _ => {
+            return -1;
+        },
+    };
 }
 
 /// change data segment size
