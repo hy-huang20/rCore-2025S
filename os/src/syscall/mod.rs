@@ -49,6 +49,9 @@ const SYSCALL_WAITPID: usize = 260;
 /// spawn syscall
 const SYSCALL_SPAWN: usize = 400;
 
+/// 一个粗略的上界
+pub const SYSCALL_ID_UPPER_BOUND: usize = 500;
+
 mod fs;
 mod process;
 

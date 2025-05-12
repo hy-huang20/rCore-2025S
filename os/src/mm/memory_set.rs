@@ -43,6 +43,10 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+    ///
+    pub fn unmap_from_page_table(&mut self, vpn: VirtPageNum) {
+        self.page_table.unmap(vpn);
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {

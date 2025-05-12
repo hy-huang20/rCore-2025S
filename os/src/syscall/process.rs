@@ -4,11 +4,13 @@ use alloc::sync::Arc;
 
 use crate::{
     fs::{open_file, OpenFlags},
-    mm::{translated_refmut, translated_str},
+    mm::{translated_refmut, translated_str, translated_byte_buffer, MapPermission, VirtAddr},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
+        suspend_current_and_run_next, map_for_current_task, unmap_for_current_task
     },
+    timer::get_time_us,
+    config::PAGE_SIZE,
 };
 
 #[repr(C)]
@@ -106,29 +108,76 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel: sys_get_time");
+    let us = get_time_us();
+    let ts = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let size_of_timeval = core::mem::size_of::<TimeVal>();
+    let buffers = translated_byte_buffer(current_user_token(), _ts as *const u8, size_of_timeval);
+    let ts_byte_arr: &[u8] = unsafe {
+        core::slice::from_raw_parts(
+            &ts as *const TimeVal as *const u8,
+            size_of_timeval
+        )
+    };
+    let mut ts_idx: usize = 0;
+    for buffer in buffers {
+        buffer.copy_from_slice(&ts_byte_arr[ts_idx..ts_idx+buffer.len()]);
+        ts_idx += buffer.len();
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
+    if _start % PAGE_SIZE != 0 { // 如果虚拟地址没有按页对齐直接失败
+        return -1;
+    }
+    if _prot & !0x7 != 0 { // _prot 其余位必须为 0
+        return -1;
+    }
+    if _prot & 0x7 == 0 { // 这样的内存无意义
+        return -1;
+    }
+    let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
+    let mut map_perm: MapPermission = MapPermission::U; // MapPermission::V 会在 page_table 的 map 中被加上
+    if _prot & 0x1 != 0 { // read
+        map_perm |= MapPermission::R;
+    }
+    if _prot & 0x2 != 0 { // write
+        map_perm |= MapPermission::W;
+    }
+    if _prot & 0x4 != 0 { // execute
+        map_perm |= MapPermission::X;
+    }
+    let vpn = VirtAddr::from(_start).floor();
+    match map_for_current_task(vpn, num_pages, map_perm) {
+        0 => {
+            return 0;
+        },
+        _ => {
+            return -1;
+        }
+    };
 }
 
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _start % PAGE_SIZE != 0 { // 如果虚拟地址没有按页对齐直接失败
+        return -1;
+    }
+    let num_pages = (_len + PAGE_SIZE - 1) / PAGE_SIZE; // page 数向上取整
+    let vpn = VirtAddr::from(_start).floor();
+    match unmap_for_current_task(vpn, num_pages) {
+        0 => {
+            return 0;
+        },
+        _ => {
+            return -1;
+        },
+    };
 }
 
 /// change data segment size
@@ -144,18 +193,31 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel:pid[{}] sys_spawn", current_task().unwrap().pid.0);
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+        let current_task = current_task().unwrap();
+        let new_task = current_task.spawn(all_data.as_slice());
+        let new_pid = new_task.pid.0;
+        // add new task to scheduler
+        add_task(new_task);
+        new_pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let cur_task = current_task().unwrap();
+    trace!("kernel:pid[{}] sys_set_priority", cur_task.pid.0);
+    if _prio <= 1 {
+        return -1;
+    }
+    let cur_task = current_task().unwrap();
+    let mut inner = cur_task.inner_exclusive_access();
+    inner.set_priority(_prio);
+    _prio
 }
