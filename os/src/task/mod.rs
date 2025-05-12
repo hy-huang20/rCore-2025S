@@ -36,6 +36,9 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+
+const BIG_STRIDE: usize = 1000000;
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -46,6 +49,9 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    // increase stride
+    let pass = BIG_STRIDE / (task_inner.priority as usize);
+    task_inner.stride += pass;
     drop(task_inner);
     // ---- release current PCB
 
