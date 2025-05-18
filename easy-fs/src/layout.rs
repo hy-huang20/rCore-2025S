@@ -6,7 +6,9 @@ use core::fmt::{Debug, Formatter, Result};
 /// Magic number for sanity check
 const EFS_MAGIC: u32 = 0x3b800001;
 /// The max number of direct inodes
-const INODE_DIRECT_COUNT: usize = 28;
+/// 为了在 DiskInode 中塞入元数据 nlink: u32
+/// const INODE_DIRECT_COUNT: usize = 28;
+const INODE_DIRECT_COUNT: usize = 27;
 /// The max length of inode name
 const NAME_LENGTH_LIMIT: usize = 27;
 /// The max number of indirect1 inodes
@@ -81,11 +83,22 @@ type DataBlock = [u8; BLOCK_SZ];
 /// A disk inode
 #[repr(C)]
 pub struct DiskInode {
+    ///
     pub size: u32,
+    /// 原长 28 为了存放 nlink 缩减为 27
     pub direct: [u32; INODE_DIRECT_COUNT],
+    ///
     pub indirect1: u32,
+    ///
     pub indirect2: u32,
     type_: DiskInodeType,
+    /// 注：OSInode, Inode 都存放在内存中，无法持久化存储
+    /// 注：而 nlink 作为文件的固有属性必须能够持久化存储
+    /// 注：因此必须放在 DiskInode 中，因为 DiskInode 存在磁盘上
+    /// 见 rCore 文档 “简易文件系统 easy-fs (上)”
+    /// 在后续需要支持更多类型的元数据的时候，可以适当缩减直接索引 direct 的块数
+    /// 并将节约出来的空间用来存放其他元数据，仍可保证 DiskInode 的总大小为 128 字节
+    pub nlink: u32,
 }
 
 impl DiskInode {
@@ -97,6 +110,10 @@ impl DiskInode {
         self.indirect1 = 0;
         self.indirect2 = 0;
         self.type_ = type_;
+        // 文件的硬链接数初始为 1
+        // 当然如果 type_ 是 Directory 就可以不用管这个字段
+        // 因为目录不支持硬链接
+        self.nlink = 1;
     }
     /// Whether this inode is a directory
     pub fn is_dir(&self) -> bool {

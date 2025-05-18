@@ -15,4 +15,6 @@ use block_cache::{block_cache_sync_all, get_block_cache};
 pub use block_dev::BlockDevice;
 pub use efs::EasyFileSystem;
 use layout::*;
+pub use layout::DiskInode;
 pub use vfs::Inode;
+pub use layout::{DIRENT_SZ, DirEntry};

@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
+use core::{str, slice, any::Any};
 
 /// inode in memory
 /// A wrapper around a filesystem inode
@@ -20,12 +21,14 @@ use lazy_static::*;
 pub struct OSInode {
     readable: bool,
     writable: bool,
-    inner: UPSafeCell<OSInodeInner>,
+    ///
+    pub inner: UPSafeCell<OSInodeInner>,
 }
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
     offset: usize,
-    inode: Arc<Inode>,
+    ///
+    pub inode: Arc<Inode>,
 }
 
 impl OSInode {
@@ -156,4 +159,18 @@ impl File for OSInode {
         }
         total_write_size
     }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// 
+pub fn find_inode(path: *const u8) ->Option<Arc<Inode>> {
+    let mut len = 0;
+    while unsafe { *path.add(len) } != 0 { // 已知 path 以 \0 结尾
+        len += 1;
+    }
+    ROOT_INODE.find(str::from_utf8(unsafe {
+        slice::from_raw_parts(path, len)
+    }).unwrap())
 }
