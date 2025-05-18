@@ -4,7 +4,7 @@ mod inode;
 mod stdio;
 
 use crate::mm::UserBuffer;
-pub use inode::{find_inode};
+pub use inode::{find_inode_by_path, insert_dir_entry, delete_dir_entry};
 use core::any::Any;
 
 /// trait File for all file types
