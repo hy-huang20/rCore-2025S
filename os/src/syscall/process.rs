@@ -1,10 +1,11 @@
 use crate::{
     fs::{open_file, OpenFlags},
-    mm::{translated_ref, translated_refmut, translated_str},
+    mm::{translated_ref, translated_refmut, translated_str, translated_byte_buffer},
     task::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
         suspend_current_and_run_next, SignalFlags,
     },
+    timer::get_time_us,
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 
@@ -13,6 +14,20 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
+}
+
+/// 为了方便内核向用户态进程拷贝数据而实现的函数
+pub fn os_data_copy_to_user(os_ptr: *const u8, user_ptr: *const u8, data_len: usize) {
+    let token = current_user_token();
+    let user_buffers = translated_byte_buffer(token, user_ptr, data_len);
+    let os_data_byte_arr: &[u8] = unsafe { 
+        core::slice::from_raw_parts(os_ptr, data_len) 
+    };
+    let mut byte_idx: usize = 0;
+    for buffer in user_buffers {
+        buffer.copy_from_slice(&os_data_byte_arr[byte_idx..byte_idx+buffer.len()]);
+        byte_idx += buffer.len();
+    }
 }
 
 /// exit syscall
@@ -153,10 +168,17 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
-    -1
+    let us = get_time_us();
+    let ts = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let size_of_timeval = core::mem::size_of::<TimeVal>();
+    os_data_copy_to_user(&ts as *const TimeVal as *const u8, _ts as *const u8, size_of_timeval);
+    0
 }
 
 /// mmap syscall
