@@ -96,13 +96,13 @@ pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
         return -1;
     }
     if let Some(file) = &task_inner.fd_table[_fd] {
-        // 只有这里 clone 了 drop(task_inner) 才能成功
+        // 只有这里 clone 了, drop(task_inner) 才能成功
         let file = file.clone();
         drop(task_inner);
         if let Some(os_inode) = file.as_any().downcast_ref::<OSInode>() { // 运行时多态
             // 计算 inode_id
             let inode = {
-                // 在这之前不 drop(task_inner) 的话会冲突
+                // 在这之前不 drop(task_inner) 的话会运行时报错 already borrowed: BorrowMutError
                 let inner = os_inode.inner.exclusive_access();
                 inner.inode.clone()
             };
