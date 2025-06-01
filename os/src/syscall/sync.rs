@@ -53,7 +53,7 @@ fn mutex_deadlock_exist(tid: usize, mid: usize) -> bool {
         if let Some(mutex_any) = &process_inner.mutex_list[i] {
             let mutex_any = mutex_any.clone();
             if let Some(mutex_blocking) = mutex_any.as_any().downcast_ref::<MutexBlocking>() {
-                let inner = mutex_blocking.inner.exclusive_access(); // 这里之所以可以 exclusive_access 是因为 mutex_any.clone()
+                let inner = mutex_blocking.inner.exclusive_access(); // 这里 exclusive_access 能编译过是因为 mutex_any.clone()
                 if !inner.locked {
                     worker[i] = 1;
                 }
