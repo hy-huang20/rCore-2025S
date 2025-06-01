@@ -43,17 +43,16 @@ fn banker_algorithm(
 
 fn mutex_deadlock_exist(tid: usize, mid: usize) -> bool {
     let process = current_process();
-    let process_inner = process.inner_exclusive_access(); // 最外层已加锁，后续访问内层 UPSafeCell 无需 exclusive_access
-    let num_threads = process_inner.tasks.len();
-    let num_resources = process_inner.mutex_list.len();
+    let num_threads = process.inner_exclusive_access().tasks.len();
+    let num_resources = process.inner_exclusive_access().mutex_list.len();
     let mut worker = vec![0u32; num_resources]; // worker = available
     let allocation = vec![vec![0u32; num_resources]; num_threads];
     let mut need = vec![vec![0u32; num_resources]; num_threads]; // need = max - allocation
     for i in 0..num_resources { 
-        if let Some(mutex_any) = &process_inner.mutex_list[i] {
+        if let Some(mutex_any) = &process.inner_exclusive_access().mutex_list[i] {
             let mutex_any = mutex_any.clone();
             if let Some(mutex_blocking) = mutex_any.as_any().downcast_ref::<MutexBlocking>() {
-                let inner = mutex_blocking.inner.exclusive_access(); // 这里 exclusive_access 能编译过是因为 mutex_any.clone()
+                let inner = mutex_blocking.inner.exclusive_access();
                 if !inner.locked {
                     worker[i] = 1;
                 }
