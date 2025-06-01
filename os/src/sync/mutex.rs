@@ -5,6 +5,7 @@ use crate::task::TaskControlBlock;
 use crate::task::{block_current_and_run_next, suspend_current_and_run_next};
 use crate::task::{current_task, wakeup_task};
 use alloc::{collections::VecDeque, sync::Arc};
+use core::any::Any;
 
 /// Mutex trait
 pub trait Mutex: Sync + Send {
@@ -12,6 +13,8 @@ pub trait Mutex: Sync + Send {
     fn lock(&self);
     /// Unlock the mutex
     fn unlock(&self);
+    ///
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// Spinlock Mutex struct
@@ -50,16 +53,25 @@ impl Mutex for MutexSpin {
         let mut locked = self.locked.exclusive_access();
         *locked = false;
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 /// Blocking Mutex struct
 pub struct MutexBlocking {
-    inner: UPSafeCell<MutexBlockingInner>,
+    ///
+    pub inner: UPSafeCell<MutexBlockingInner>,
 }
 
 pub struct MutexBlockingInner {
-    locked: bool,
-    wait_queue: VecDeque<Arc<TaskControlBlock>>,
+    ///
+    pub locked: bool,
+    /// 增加一个属性记录该锁目前正被哪个线程占有
+    pub lock_acquired_task: Option<Arc<TaskControlBlock>>,
+    ///
+    pub wait_queue: VecDeque<Arc<TaskControlBlock>>,
 }
 
 impl MutexBlocking {
@@ -70,6 +82,7 @@ impl MutexBlocking {
             inner: unsafe {
                 UPSafeCell::new(MutexBlockingInner {
                     locked: false,
+                    lock_acquired_task: None,
                     wait_queue: VecDeque::new(),
                 })
             },
@@ -101,5 +114,9 @@ impl Mutex for MutexBlocking {
         } else {
             mutex_inner.locked = false;
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
