@@ -69,15 +69,51 @@ fn mutex_deadlock_exist(tid: usize, mid: usize) -> bool {
                 } else {
                     worker[mutex_id] = 1;
                 } 
+                for tcb in inner.wait_queue.iter() {
+                    let thread_id = tcb.inner_exclusive_access().res.as_ref().unwrap().tid;
+                    need[thread_id][mutex_id] += 1;
+                }
             }
         }
     }
-    need[tid][mid] = 1;
+    need[tid][mid] += 1;
     return banker_algorithm(num_resources, num_threads, &mut worker, &allocation, &need);
 }
 
 fn semaphore_deadlock_exist(tid: usize, sid: usize) -> bool {
-    return tid + sid != 0;
+    let process = current_process();
+    let process_inner = process.inner_exclusive_access();
+    let num_threads = process_inner.tasks.len();
+    let num_resources = process_inner.mutex_list.len();
+    let mut worker = vec![0u32; num_resources]; // worker = available
+    let mut allocation = vec![vec![0u32; num_resources]; num_threads];
+    let mut need = vec![vec![0u32; num_resources]; num_threads]; // need = max - allocation
+    for sem_id in 0..num_resources {
+        if let Some(sem) = &process_inner.semaphore_list[sem_id] {
+            let sem = sem.clone();
+            let inner = sem.inner.exclusive_access();
+            for tcb in inner.alloc_queue.iter() {
+                let thread_id = tcb
+                    .inner_exclusive_access()
+                    .res
+                    .as_ref()
+                    .unwrap()
+                    .tid;
+                allocation[thread_id][sem_id] += 1;
+            }
+            if inner.count <= 0 {
+                worker[sem_id] = 0;
+            } else {
+                worker[sem_id] = inner.count as u32;
+            }
+            for tcb in inner.wait_queue.iter() {
+                let thread_id = tcb.inner_exclusive_access().res.as_ref().unwrap().tid;
+                need[thread_id][sem_id] += 1;
+            }
+        }
+    }
+    need[tid][sid] += 1;
+    return banker_algorithm(num_resources, num_threads, &mut worker, &allocation, &need);
 }
 
 /// sleep syscall
