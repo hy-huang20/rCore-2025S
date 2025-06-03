@@ -49,13 +49,13 @@ impl Semaphore {
             .alloc_queue
             .iter()
             .position(
-                |tcb| 
-                tid == tcb
-                    .inner_exclusive_access()
-                    .res
-                    .as_ref()
-                    .unwrap()
-                    .tid
+                |tcb| {
+                    if let Some(res) = tcb.inner_exclusive_access().res.as_ref() {
+                        tid == res.tid
+                    } else {
+                        false
+                    }
+                }
             ) 
         {
             inner.alloc_queue.remove(pos);
