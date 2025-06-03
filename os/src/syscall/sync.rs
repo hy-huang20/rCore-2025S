@@ -81,10 +81,12 @@ fn mutex_deadlock_exist(tid: usize, mid: usize) -> bool {
 }
 
 fn semaphore_deadlock_exist(tid: usize, sid: usize) -> bool {
+    println!("sem deadlock check begin");
     let process = current_process();
     let process_inner = process.inner_exclusive_access();
     let num_threads = process_inner.tasks.len();
     let num_resources = process_inner.mutex_list.len();
+    println!("num_threads: {}, num_resources: {}", num_threads, num_resources);
     let mut worker = vec![0u32; num_resources]; // worker = available
     let mut allocation = vec![vec![0u32; num_resources]; num_threads];
     let mut need = vec![vec![0u32; num_resources]; num_threads]; // need = max - allocation
