@@ -101,6 +101,7 @@ impl Mutex for MutexBlocking {
             block_current_and_run_next();
         } else {
             mutex_inner.locked = true;
+            mutex_inner.lock_acquired_task = current_task(); // clone
         }
     }
 
@@ -113,6 +114,7 @@ impl Mutex for MutexBlocking {
             wakeup_task(waking_task);
         } else {
             mutex_inner.locked = false;
+            mutex_inner.lock_acquired_task = None;
         }
     }
 

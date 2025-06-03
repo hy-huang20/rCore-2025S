@@ -43,24 +43,36 @@ fn banker_algorithm(
 
 fn mutex_deadlock_exist(tid: usize, mid: usize) -> bool {
     let process = current_process();
-    let num_threads = process.inner_exclusive_access().tasks.len();
-    let num_resources = process.inner_exclusive_access().mutex_list.len();
+    let process_inner = process.inner_exclusive_access();
+    let num_threads = process_inner.tasks.len();
+    let num_resources = process_inner.mutex_list.len();
     let mut worker = vec![0u32; num_resources]; // worker = available
-    let allocation = vec![vec![0u32; num_resources]; num_threads];
+    let mut allocation = vec![vec![0u32; num_resources]; num_threads];
     let mut need = vec![vec![0u32; num_resources]; num_threads]; // need = max - allocation
-    for i in 0..num_resources { 
-        if let Some(mutex_any) = &process.inner_exclusive_access().mutex_list[i] {
+    for mutex_id in 0..num_resources {
+        if let Some(mutex_any) = &process_inner.mutex_list[mutex_id] {
             let mutex_any = mutex_any.clone();
             if let Some(mutex_blocking) = mutex_any.as_any().downcast_ref::<MutexBlocking>() {
                 let inner = mutex_blocking.inner.exclusive_access();
-                if !inner.locked {
-                    worker[i] = 1;
-                }
+                if inner.locked {
+                    let thread_id = 
+                        inner.lock_acquired_task
+                        .as_ref()
+                        .clone()
+                        .unwrap()
+                        .inner_exclusive_access()
+                        .res
+                        .as_ref()
+                        .unwrap()
+                        .tid;
+                    allocation[thread_id][mutex_id] = 1;
+                } else {
+                    worker[mutex_id] = 1;
+                } 
             }
         }
     }
     need[tid][mid] = 1;
-
     return banker_algorithm(num_resources, num_threads, &mut worker, &allocation, &need);
 }
 
@@ -128,14 +140,24 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
     trace!("kernel:pid[{}] tid[{}] sys_mutex_lock", pid, tid);
     let process = current_process();
     let process_inner = process.inner_exclusive_access();
-    // TODO
-    if process_inner.deadlock_detect_enabled && mutex_deadlock_exist(tid, mutex_id) {
-        return -0xdead;
+    if process_inner.deadlock_detect_enabled {
+        drop(process_inner); // 因为 mutex_deadlock_exist 中也会获取 process.inner 的 exclusive_access
+        drop(process);
+        if mutex_deadlock_exist(tid, mutex_id) {
+            return -0xdead;
+        }
+        let process = current_process();
+        let process_inner = process.inner_exclusive_access();
+        let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
+        drop(process_inner);
+        drop(process);
+        mutex.lock();
+    } else {
+        let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
+        drop(process_inner);
+        drop(process);
+        mutex.lock();
     }
-    let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
-    drop(process_inner);
-    drop(process);
-    mutex.lock();
     0
 }
 /// mutex unlock syscall
@@ -218,13 +240,24 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     trace!("kernel:pid[{}] tid[{}] sys_semaphore_down", pid, tid);
     let process = current_process();
     let process_inner = process.inner_exclusive_access();
-    // TODO
-    if process_inner.deadlock_detect_enabled && semaphore_deadlock_exist(tid, sem_id) {
-        return -0xdead;
+    if process_inner.deadlock_detect_enabled {
+        drop(process_inner);
+        drop(process);
+        if semaphore_deadlock_exist(tid, sem_id) {
+            return -0xdead;
+        }
+        let process = current_process();
+        let process_inner = process.inner_exclusive_access();
+        let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+        drop(process_inner);
+        drop(process);
+        sem.down();
+    } else {
+        let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+        drop(process_inner);
+        drop(process);
+        sem.down();
     }
-    let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
-    drop(process_inner);
-    sem.down();
     0
 }
 /// condvar create syscall
